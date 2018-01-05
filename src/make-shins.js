@@ -4,7 +4,6 @@ import Debug from 'debug'
 import fs from 'fs-extra'
 import path from 'path'
 import program from 'commander'
-import shins from 'shins'
 
 const d = new Debug('make-shins')
 
@@ -18,9 +17,36 @@ program
   .option('-m, --minify <minify>', 'Minifies the output')
   .parse(process.argv)
 
+if (!program.output) {
+  console.error('output directory must not be blank')
+  process.exit(-1)
+}
+
 console.time('make-shins')
 d('Reading markdown')
 const markdownString = fs.readFileSync(path.resolve(program.input), 'utf8')
+
+const shinsTmpModule = 'shins-tmp'
+const shinsTmpDir = `node_modules/${shinsTmpModule}`
+d('Preparing temporary directory')
+fs.removeSync(shinsTmpDir)
+fs.copySync('node_modules/shins', shinsTmpDir)
+
+const shins = require(shinsTmpModule);
+
+if (program['custom-css']) {
+  d('Copying custom CSS')
+  fs.copySync(
+    program['custom-css'],
+    path.join(shinsTmpDir, '/pub/css')
+  )
+}
+
+if (program.logo) {
+  const logoDestination = path.join(shinsTmpDir, 'source/images/logo.png');
+  d(`Copying ${program.logo} to ${logoDestination}`)
+  fs.copySync(program.logo, logoDestination)
+}
 
 d('Rendering shins')
 shins.render(
@@ -35,27 +61,12 @@ shins.render(
       console.error('Could not render shins', error)
     }
 
-    if (program.output) {
-      d('Preparing output directory')
-      // prepare by removing, since shins uses symlinks which break copySync
-      fs.removeSync(program.output)
-      d('Writing output')
-      fs.copySync('node_modules/shins', program.output)
-      fs.writeFileSync(path.join(program.output, 'index.html'), html)
+    d('Writing output')
+    fs.writeFileSync(path.join(program.output, 'index.html'), html)
 
-      if (program['custom-css']) {
-        d('Copying custom CSS')
-        fs.copySync(
-          program['custom-css'],
-          path.join(program.output, '/pub/css')
-        )
-      }
+    d(`Moving output to ${program.output}`)
+    fs.moveSync(shinsTmpDir, program.output)
 
-      if (program.logo) {
-        d('Copying logo.png')
-        fs.copySync(program.logo, path.join(program.output, 'source/images'))
-      }
-    }
     d('Finished')
     console.timeEnd('make-shins')
   }
